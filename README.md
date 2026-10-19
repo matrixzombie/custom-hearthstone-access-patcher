@@ -12,6 +12,8 @@ This app (referred to as the patcher) performs the following tasks:
 
 The ordering is intentional: the custom overlay replaces only the files it needs after the public patch has provided its baseline. The app always downloads `CustomPatch.zip` from the **latest GitHub Release**, so users get new custom patches without downloading a new patcher executable.
 
+The current custom overlay includes Ashes of Outland navigation, no-crowd audio, Darkmoon accessibility, and runestone-purchase accessibility.
+
 ## Publishing a custom-patch update
 
 1. Create a new GitHub Release in this repository.
