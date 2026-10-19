@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
+using System.Text.Json;
 namespace HearthstoneAccessPatcher;
 static class Patcher
 {
@@ -41,53 +43,80 @@ static class Patcher
         return null;
     }
 
-    static public void UnpackAndPatch(Stream downloaded, string directory, bool placeChangelogOnDesktop)
+    /// <summary>Reads the game version declared by a patch archive manifest.</summary>
+    public static string GetHearthstoneVersion(Stream patchArchive)
     {
-        // Normalize the target directory for security validation
-        string normalizedDirectory = Path.GetFullPath(directory);
+        if (!patchArchive.CanSeek) throw new InvalidDataException("Patch archive cannot be read.");
 
-        using ZipArchive archive = new ZipArchive(downloaded, ZipArchiveMode.Read, leaveOpen: true);
+        patchArchive.Position = 0;
+        try
+        {
+            using ZipArchive archive = new(patchArchive, ZipArchiveMode.Read, leaveOpen: true);
+            ZipArchiveEntry? manifest = archive.GetEntry("patch/Accessibility/hsa_manifest.json")
+                ?? archive.GetEntry("Accessibility/hsa_manifest.json");
+            if (manifest == null) throw new InvalidDataException("Patch archive does not contain hsa_manifest.json.");
+
+            using Stream manifestStream = manifest.Open();
+            using JsonDocument document = JsonDocument.Parse(manifestStream);
+            if (!document.RootElement.TryGetProperty("hearthstone_version", out JsonElement version))
+                throw new InvalidDataException("Patch manifest does not declare a Hearthstone version.");
+
+            return version.GetString() ?? throw new InvalidDataException("Patch manifest has an empty Hearthstone version.");
+        }
+        finally
+        {
+            patchArchive.Position = 0;
+        }
+    }
+
+    /// <summary>
+    /// Applies an archive to the Hearthstone directory. Official archives use a
+    /// <c>patch/</c> root; custom overlays may contain game files at their root.
+    /// </summary>
+    public static void UnpackAndPatch(Stream downloaded, string directory, bool placeChangelogOnDesktop)
+    {
+        string targetDirectory = Path.GetFullPath(directory);
+        string targetPrefix = targetDirectory.EndsWith(Path.DirectorySeparatorChar)
+            ? targetDirectory
+            : targetDirectory + Path.DirectorySeparatorChar;
+
+        using ZipArchive archive = new(downloaded, ZipArchiveMode.Read, leaveOpen: true);
+        bool hasPatchRoot = archive.Entries.Any(entry =>
+            entry.FullName.StartsWith(Constants.PatchDirectory, StringComparison.OrdinalIgnoreCase));
+
         foreach (ZipArchiveEntry entry in archive.Entries)
         {
-            string entryPath = entry.FullName;
-
-            // Check if this is the changelog.md file at the root of the archive
-            if (entryPath.Equals("changelog.md", StringComparison.OrdinalIgnoreCase))
+            string entryName = entry.FullName;
+            if (entryName.Equals("changelog.md", StringComparison.OrdinalIgnoreCase))
             {
                 if (placeChangelogOnDesktop)
                 {
-                    string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                    string changelogPath = Path.Combine(desktopPath, "HearthstoneAccess Changelog.md");
-
-                    using (Stream entryStream = entry.Open())
-                    using (FileStream fileStream = new(changelogPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                    {
-                        entryStream.CopyTo(fileStream);
-                    }
+                    string changelogPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "HearthstoneAccess Changelog.md");
+                    using Stream changelogStream = entry.Open();
+                    using FileStream changelogFile = new(changelogPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                    changelogStream.CopyTo(changelogFile);
                 }
                 continue;
             }
 
-            if (string.IsNullOrWhiteSpace(entryPath) || entryPath.EndsWith('/') || !entryPath.StartsWith(Constants.PatchDirectory, StringComparison.OrdinalIgnoreCase)) continue;
-            entryPath = entry.FullName.Substring(Constants.PatchDirectory.Length);
-            entryPath = Path.Join(entryPath.Split('/'));
-            entryPath = Path.GetFullPath(Path.Join(directory, entryPath));
+            if (string.IsNullOrWhiteSpace(entryName) || entryName.EndsWith('/')) continue;
+            if (hasPatchRoot)
+            {
+                if (!entryName.StartsWith(Constants.PatchDirectory, StringComparison.OrdinalIgnoreCase)) continue;
+                entryName = entryName.Substring(Constants.PatchDirectory.Length);
+            }
 
-            // Security check: Prevent path traversal attacks
-            if (!entryPath.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase))
+            string destination = Path.GetFullPath(Path.Combine(targetDirectory, Path.Join(entryName.Split('/'))));
+            if (!destination.StartsWith(targetPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidDataException($"Archive entry attempts to write outside target directory: {entry.FullName}");
             }
 
-            string entryDirectory = Path.GetDirectoryName(entryPath)!;
-            Directory.CreateDirectory(entryDirectory);
-            using (FileStream fileStream = new(entryPath, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                using (Stream entryStream = entry.Open())
-                {
-                    entryStream.CopyTo(fileStream);
-                }
-            }
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            using Stream entryStream = entry.Open();
+            using FileStream fileStream = new(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+            entryStream.CopyTo(fileStream);
         }
     }
+
 }

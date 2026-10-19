@@ -11,6 +11,12 @@ public static class Constants
     public const string ApiEndpoint = "https://hearthstoneaccess.com/api/v1/release-channels";
 
     /// <summary>
+    /// Stable GitHub Releases URL for the custom overlay. Each new GitHub release
+    /// must include an asset named CustomPatch.zip.
+    /// </summary>
+    public const string CustomPatchUrl = "https://github.com/matrixzombie/custom-hearthstone-access-patcher/releases/latest/download/CustomPatch.zip";
+
+    /// <summary>
     /// Directory within the patch archive containing files to extract
     /// </summary>
     public const string PatchDirectory = "patch/";

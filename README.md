@@ -1,14 +1,24 @@
-# HearthstoneAccess Patcher
+# Hearthstone Community + Custom Patcher
 An application that automates patching Hearthstone using the [HearthstoneAccess Community Patch](https://www.hearthstoneaccess.com/)
 
 Last Updated: Wednesday, December 3, 2025
 
 ## Overview
 This app (referred to as the patcher) performs the following tasks:
-* Downloads the zipped archive of the HearthstoneAccess Community Patch
-* Unzips the archive
-* Places the contents in your Hearthstone installation directory
-* Prompts if you want the changelog put on your desktop
+* Downloads the selected official HearthstoneAccess Community Patch
+* Installs the official patch first
+* Downloads and installs the newest custom overlay from this repository's GitHub Releases second
+* Prompts if you want the official changelog put on your desktop
+
+The ordering is intentional: the custom overlay replaces only the files it needs after the public patch has provided its baseline. The app always downloads `CustomPatch.zip` from the **latest GitHub Release**, so users get new custom patches without downloading a new patcher executable.
+
+## Publishing a custom-patch update
+
+1. Create a new GitHub Release in this repository.
+2. Upload the new overlay archive as a release asset named exactly **`CustomPatch.zip`**.
+3. Publish the release.
+
+The next time a user runs the existing patcher, it downloads that release asset automatically. Only publish an archive whose `hsa_manifest.json` declares the same Hearthstone version as the current Community Patch. The patcher rejects mismatched versions before applying the custom overlay.
 
 There are two general target audiences: those who wish to simply use the patcher, and those who wish to develop/build the patcher.
 
@@ -20,7 +30,7 @@ To use the patcher, download the latest executable from the [latest release page
 Make sure you have the following dependencies installed and available on your system:
 * [Git](https://git-scm.com/): any recent version
 * [GitHub CLI](https://cli.github.com/) (optional): any recent version
-* .NET 10 sdk, either from [dotnet.microsoft.com](https://dotnet.microsoft.com/en-us/download) or install using visual studio.
+* .NET 8 SDK, either from [dotnet.microsoft.com](https://dotnet.microsoft.com/en-us/download) or install using Visual Studio.
 
 ### Clone the Repo
 With Git:
@@ -36,6 +46,16 @@ Or with gh:
 gh repo clone leibylucw/hearthstone-access-patcher
 cd hearthstone-access-patcher
 ```
+
+### Create the distributable
+
+From the repository root, build the single-file Windows executable:
+
+```shell
+dotnet publish -c Release
+```
+
+Distribute `bin\Release\net8.0-windows\win-x86\publish\HearthstoneAccessPatcher.exe`. It is self-contained, so recipients do not need to install .NET.
 
 ### Common Development Tasks:
 

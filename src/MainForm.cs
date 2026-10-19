@@ -70,7 +70,7 @@ public class MainForm : Form
         btnExit = new Button();
         mainPanel = new FlowLayoutPanel();
 
-        this.Text = "HearthstoneAccessPatcher";
+        this.Text = "Hearthstone Community + Custom Patcher";
         this.Size = new System.Drawing.Size(600, 400);
         this.StartPosition = FormStartPosition.CenterScreen;
 
@@ -171,7 +171,7 @@ public class MainForm : Form
         buttonPanel.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         buttonPanel.Margin = new Padding(0, 10, 0, 0); // Add top margin for spacing
 
-        btnStart.Text = "Patch Hearthstone";
+        btnStart.Text = "Apply Community + Custom Patches";
         btnStart.AutoSize = true;
         btnStart.Click += BtnStart_Click;
 
@@ -223,7 +223,7 @@ public class MainForm : Form
 
         // Mark operation as in progress
         isOperationInProgress = true;
-        btnStart.Text = "Patching Hearthstone...";
+        btnStart.Text = "Applying patches...";
 
         try
         {
@@ -245,19 +245,22 @@ public class MainForm : Form
                 cachedSourceUrl = source.url;
             }
 
-            operationPanel.LabelText = "Patching...";
+            operationPanel.LabelText = "Applying Community Patch (step 1 of 2)...";
 
-            // Reset position to start of file for patching
+            // The official patch must be installed first; the custom archive is an
+            // overlay and is downloaded fresh from the latest GitHub release second.
             cachedPatchFile.Position = 0;
             bool placeChangelog = chkPlaceChangelogOnDesktop.Checked;
             await Task.Run(() => Patcher.UnpackAndPatch(cachedPatchFile, directory, placeChangelog));
 
-            operationPanel.LabelText = "Done.";
+            await DownloadAndApplyCustomPatchAsync(directory, cachedPatchFile);
+
+            operationPanel.LabelText = "Both patches applied.";
 
             // Persist the directory to environment variable for user after successful patch
             Environment.SetEnvironmentVariable("HEARTHSTONE_HOME", directory, EnvironmentVariableTarget.User);
 
-            MessageBox.Show("Hearthstone patched successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("The Community Patch and the custom patch were applied successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             // Clean up cached file after successful patch
             CleanupCachedFile();
@@ -295,9 +298,9 @@ public class MainForm : Form
             // Network error during download - discard cached file
             CleanupCachedFile();
         }
-        catch (InvalidDataException)
+        catch (InvalidDataException ex)
         {
-            string message = "The downloaded patch file is invalid or corrupted. Please try again.";
+            string message = "The downloaded patch file is invalid, corrupted, or not compatible with the selected Community Patch.\n\n" + ex.Message;
             MessageBox.Show(this, message, "Invalid Patch File", MessageBoxButtons.OK, MessageBoxIcon.Error);
             operationPanel.LabelText = "Error: Invalid patch file.";
             // Invalid file - discard it and force re-download
@@ -319,7 +322,47 @@ public class MainForm : Form
         {
             // Reset button state
             isOperationInProgress = false;
-            btnStart.Text = "Patch Hearthstone";
+            btnStart.Text = "Apply Community + Custom Patches";
+        }
+    }
+
+    private async Task DownloadAndApplyCustomPatchAsync(string directory, Stream communityPatchFile)
+    {
+        operationPanel.LabelText = "Downloading Custom Patch (step 2 of 2)...";
+        Downloader downloader = new(Constants.CustomPatchUrl);
+        downloader.ProgressChanged += (sender, progress) =>
+        {
+            operationPanel.UpdateProgress(progress, "Downloading Custom Patch (step 2 of 2)...");
+        };
+
+        FileStream? customPatchFile = null;
+        try
+        {
+            customPatchFile = await downloader.Download();
+            string communityVersion = Patcher.GetHearthstoneVersion(communityPatchFile);
+            string customVersion = Patcher.GetHearthstoneVersion(customPatchFile);
+            if (!string.Equals(communityVersion, customVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"Custom Patch version {customVersion} does not match Community Patch version {communityVersion}. " +
+                    "Please wait for a compatible custom patch release.");
+            }
+
+            operationPanel.LabelText = "Applying Custom Patch (step 2 of 2)...";
+            await Task.Run(() => Patcher.UnpackAndPatch(customPatchFile, directory, placeChangelogOnDesktop: false));
+        }
+        finally
+        {
+            customPatchFile?.Dispose();
+            if (downloader.TempFilePath != null && File.Exists(downloader.TempFilePath))
+            {
+                try
+                {
+                    File.Delete(downloader.TempFilePath);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
     }
 
